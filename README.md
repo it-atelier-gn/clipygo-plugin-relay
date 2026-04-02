@@ -26,7 +26,7 @@ Configure the plugin through clipygo's Settings → Plugins → ⚙ config UI:
 
 | Field | Description |
 |---|---|
-| `relay_url` | URL of the relay server (e.g. `http://relay.example.com:8000`) |
+| `relay_url` | URL of the relay server (e.g. `https://clipygo-relay.return-co.de`) |
 | `display_name` | Your name shown to message recipients |
 
 ### Contacts
@@ -43,7 +43,7 @@ Add contacts manually:
 
 ```json
 {
-  "relay_url": "http://relay.example.com:8000",
+  "relay_url": "https://clipygo-relay.return-co.de",
   "display_name": "Alice",
   "contacts": [
     {

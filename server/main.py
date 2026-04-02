@@ -24,11 +24,11 @@ from pydantic import BaseModel
 
 # --- Configuration ---
 
-MESSAGE_TTL = 86400  # 24 hours
-MAX_QUEUE_SIZE = 100  # per recipient
+MESSAGE_TTL = 3600  # 1 hour
+MAX_QUEUE_SIZE = 5  # per recipient
 MAX_MESSAGE_SIZE = 1_048_576  # 1 MB
 RATE_LIMIT_WINDOW = 60  # seconds
-RATE_LIMIT_MAX = 60  # messages per window per sender
+RATE_LIMIT_MAX = 10  # messages per window per sender
 EVICTION_INTERVAL = 300  # run TTL eviction every 5 minutes
 AUTH_TIMEOUT = 10  # seconds to complete challenge-response
 

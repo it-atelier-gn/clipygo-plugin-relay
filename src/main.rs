@@ -376,12 +376,19 @@ fn handle_get_config_schema(state: &AppState) -> String {
                 "relay_url": {
                     "type": "string",
                     "title": "Relay Server URL",
-                    "description": "URL of the relay server (e.g. http://relay.example.com:8000)"
+                    "description": "URL of the relay server (e.g. https://clipygo-relay.return-co.de)"
                 },
                 "display_name": {
                     "type": "string",
                     "title": "Display Name",
                     "description": "Your name shown to message recipients"
+                },
+                "private_key": {
+                    "type": "string",
+                    "title": "Private Key",
+                    "description": "Your X25519 private key (backup this to transfer your identity)",
+                    "format": "password",
+                    "readOnly": true
                 }
             },
             "required": ["relay_url", "display_name"]
@@ -389,6 +396,7 @@ fn handle_get_config_schema(state: &AppState) -> String {
         values: serde_json::json!({
             "relay_url": state.config.relay_url,
             "display_name": state.config.display_name,
+            "private_key": B64.encode(state.private_key.as_bytes()),
         }),
     })
     .unwrap()
