@@ -341,7 +341,7 @@ fn handle_get_info() -> String {
 }
 
 fn handle_get_targets(state: &AppState) -> String {
-    let mut targets: Vec<TargetEntry> = state
+    let targets: Vec<TargetEntry> = state
         .config
         .contacts
         .iter()
@@ -354,16 +354,6 @@ fn handle_get_targets(state: &AppState) -> String {
             image: String::new(),
         })
         .collect();
-
-    // Add a "Share My Key" pseudo-target
-    targets.push(TargetEntry {
-        id: "relay:share_key".to_string(),
-        provider: "clipygo-plugin-relay".to_string(),
-        formats: vec!["text".to_string(), "image".to_string()],
-        title: "Share My Relay Key".to_string(),
-        description: "Copy your public key and ID for sharing".to_string(),
-        image: String::new(),
-    });
 
     serde_json::to_string(&TargetsResponse { targets }).unwrap()
 }
@@ -383,6 +373,18 @@ fn handle_get_config_schema(state: &AppState) -> String {
                     "title": "Display Name",
                     "description": "Your name shown to message recipients"
                 },
+                "user_id": {
+                    "type": "string",
+                    "title": "Relay ID",
+                    "description": "Your unique relay identity (share this with contacts)",
+                    "readOnly": true
+                },
+                "public_key": {
+                    "type": "string",
+                    "title": "Public Key",
+                    "description": "Your X25519 public key (share this with contacts)",
+                    "readOnly": true
+                },
                 "private_key": {
                     "type": "string",
                     "title": "Private Key",
@@ -396,6 +398,8 @@ fn handle_get_config_schema(state: &AppState) -> String {
         values: serde_json::json!({
             "relay_url": state.config.relay_url,
             "display_name": state.config.display_name,
+            "user_id": state.user_id,
+            "public_key": B64.encode(state.public_key.as_bytes()),
             "private_key": B64.encode(state.private_key.as_bytes()),
         }),
     })
@@ -431,24 +435,6 @@ fn handle_send(
     format: &str,
     runtime: &tokio::runtime::Runtime,
 ) -> String {
-    // Handle "share key" pseudo-target
-    if target_id == "relay:share_key" {
-        let key_info = format!(
-            "Relay ID: {}\nPublic Key: {}\nRelay URL: {}",
-            state.user_id,
-            B64.encode(state.public_key.as_bytes()),
-            state.config.relay_url,
-        );
-        // We can't actually set the clipboard from a plugin, so return the info as the response
-        // The plugin protocol doesn't support this, so we return success and the key info
-        // will need to be copied via the notification window
-        return serde_json::to_string(&SendResponse {
-            success: true,
-            error: Some(key_info),
-        })
-        .unwrap();
-    }
-
     // Find contact by target_id (format: "relay:{contact_id}")
     let contact_id = target_id.strip_prefix("relay:").unwrap_or(target_id);
     let contact = match state.config.contacts.iter().find(|c| c.id == contact_id) {
@@ -999,7 +985,7 @@ mod tests {
     // --- Targets ---
 
     #[test]
-    fn targets_include_contacts_and_share_key() {
+    fn targets_include_contacts() {
         let dd = PathBuf::from("/tmp/test");
         let secret = StaticSecret::from([1u8; 32]);
         let public = PublicKey::from(&secret);
@@ -1023,10 +1009,9 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&response).unwrap();
         let targets = v["targets"].as_array().unwrap();
 
-        assert_eq!(targets.len(), 2);
+        assert_eq!(targets.len(), 1);
         assert_eq!(targets[0]["id"], "relay:bob123");
         assert_eq!(targets[0]["title"], "Bob");
-        assert_eq!(targets[1]["id"], "relay:share_key");
     }
 
     // --- Config schema ---
@@ -1052,6 +1037,9 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&response).unwrap();
         assert_eq!(v["values"]["relay_url"], "http://my-relay.com");
         assert_eq!(v["values"]["display_name"], "TestUser");
+        assert_eq!(v["values"]["user_id"], "test");
+        assert!(v["values"]["public_key"].as_str().unwrap().len() > 0);
+        assert!(v["values"]["private_key"].as_str().unwrap().len() > 0);
     }
 
     // --- Derive key ---
