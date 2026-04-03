@@ -28,6 +28,9 @@ Configure the plugin through clipygo's Settings → Plugins → ⚙ config UI:
 |---|---|
 | `relay_url` | URL of the relay server (e.g. `https://clipygo-relay.return-co.de`) |
 | `display_name` | Your name shown to message recipients |
+| `user_id` | Your unique relay identity (read-only — share this with contacts) |
+| `public_key` | Your X25519 public key (read-only — share this with contacts) |
+| `private_key` | Your X25519 private key (read-only, hidden — backup to transfer identity) |
 
 ### Contacts
 
@@ -55,7 +58,7 @@ Add contacts manually:
 }
 ```
 
-Use the **Share My Relay Key** target to get your own public key and ID for sharing.
+Your Relay ID and Public Key are shown as read-only fields in the plugin config UI — copy and share them with contacts.
 
 ## Relay server
 
@@ -96,7 +99,7 @@ WebSocket connections are authenticated via X25519 ECDH challenge-response:
 
 This prevents an attacker from connecting as another user to intercept their messages.
 
-Messages for offline recipients are queued in memory with a 24-hour TTL. Rate limiting: 60 messages/minute per sender. Max queue: 100 messages per recipient. Max message size: 1 MB.
+Messages for offline recipients are queued in memory with a 1-hour TTL. Rate limiting: 10 messages/minute per sender. Max queue: 5 messages per recipient. Max message size: 1 MB.
 
 ## Security
 
