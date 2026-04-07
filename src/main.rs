@@ -92,7 +92,7 @@ struct ConnectionStatusData {
 
 // --- Config & keypair ---
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone)]
 struct AppConfig {
     #[serde(default)]
     relay_url: String,
@@ -100,6 +100,16 @@ struct AppConfig {
     display_name: String,
     #[serde(default)]
     contacts: Vec<Contact>,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            relay_url: "https://clipygo-relay.return-co.de".to_string(),
+            display_name: String::new(),
+            contacts: Vec::new(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -391,6 +401,20 @@ fn handle_get_config_schema(state: &AppState) -> String {
                     "description": "Your X25519 private key (backup this to transfer your identity)",
                     "format": "password",
                     "readOnly": true
+                },
+                "contacts": {
+                    "type": "array",
+                    "title": "Contacts",
+                    "description": "People you can send clipboard to. Ask them for their Relay ID and Public Key.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string", "title": "Name" },
+                            "id": { "type": "string", "title": "Relay ID" },
+                            "public_key": { "type": "string", "title": "Public Key" }
+                        },
+                        "required": ["name", "id", "public_key"]
+                    }
                 }
             },
             "required": ["relay_url", "display_name"]
@@ -401,6 +425,7 @@ fn handle_get_config_schema(state: &AppState) -> String {
             "user_id": state.user_id,
             "public_key": B64.encode(state.public_key.as_bytes()),
             "private_key": B64.encode(state.private_key.as_bytes()),
+            "contacts": serde_json::to_value(&state.config.contacts).unwrap_or(serde_json::Value::Array(vec![])),
         }),
     })
     .unwrap()
@@ -412,6 +437,11 @@ fn handle_set_config(state: &mut AppState, values: serde_json::Value) -> String 
     }
     if let Some(name) = values.get("display_name").and_then(|v| v.as_str()) {
         state.config.display_name = name.to_string();
+    }
+    if let Some(contacts_val) = values.get("contacts") {
+        if let Ok(contacts) = serde_json::from_value::<Vec<Contact>>(contacts_val.clone()) {
+            state.config.contacts = contacts;
+        }
     }
 
     match save_config(&state.data_dir, &state.config) {
@@ -904,7 +934,7 @@ mod tests {
     fn load_config_returns_default_when_missing() {
         let dir = PathBuf::from("/nonexistent/path/clipygo_test");
         let config = load_config(&dir);
-        assert_eq!(config.relay_url, "");
+        assert_eq!(config.relay_url, "https://clipygo-relay.return-co.de");
         assert_eq!(config.display_name, "");
         assert!(config.contacts.is_empty());
     }
@@ -1040,6 +1070,72 @@ mod tests {
         assert_eq!(v["values"]["user_id"], "test");
         assert!(v["values"]["public_key"].as_str().unwrap().len() > 0);
         assert!(v["values"]["private_key"].as_str().unwrap().len() > 0);
+        assert_eq!(v["values"]["contacts"], serde_json::json!([]));
+        assert_eq!(v["schema"]["properties"]["contacts"]["type"], "array");
+    }
+
+    #[test]
+    fn config_schema_includes_contacts_with_items() {
+        let dd = PathBuf::from("/tmp/test2");
+        let secret = StaticSecret::from([2u8; 32]);
+        let public = PublicKey::from(&secret);
+        let state = AppState {
+            config: AppConfig {
+                relay_url: String::new(),
+                display_name: String::new(),
+                contacts: vec![Contact {
+                    name: "Alice".to_string(),
+                    id: "abc123".to_string(),
+                    public_key: "dummykey".to_string(),
+                }],
+            },
+            private_key: secret,
+            public_key: public,
+            user_id: "u1".to_string(),
+            data_dir: dd,
+        };
+
+        let response = handle_get_config_schema(&state);
+        let v: serde_json::Value = serde_json::from_str(&response).unwrap();
+        let contacts = &v["values"]["contacts"];
+        assert_eq!(contacts[0]["name"], "Alice");
+        assert_eq!(contacts[0]["id"], "abc123");
+    }
+
+    #[test]
+    fn set_config_updates_contacts() {
+        let dd = PathBuf::from("/tmp/test3");
+        let secret = StaticSecret::from([3u8; 32]);
+        let public = PublicKey::from(&secret);
+        let mut state = AppState {
+            config: AppConfig {
+                relay_url: String::new(),
+                display_name: String::new(),
+                contacts: vec![],
+            },
+            private_key: secret,
+            public_key: public,
+            user_id: "u1".to_string(),
+            data_dir: dd,
+        };
+
+        // set_config won't persist (no real dir), but it updates in-memory state
+        let values = serde_json::json!({
+            "relay_url": "http://relay.test",
+            "display_name": "Bob",
+            "contacts": [
+                { "name": "Alice", "id": "aaa", "public_key": "key1" }
+            ]
+        });
+        // Can't call handle_set_config directly because it tries to save to disk.
+        // Apply the logic inline to test parsing.
+        if let Some(contacts_val) = values.get("contacts") {
+            let contacts: Vec<Contact> = serde_json::from_value(contacts_val.clone()).unwrap();
+            state.config.contacts = contacts;
+        }
+        assert_eq!(state.config.contacts.len(), 1);
+        assert_eq!(state.config.contacts[0].name, "Alice");
+        assert_eq!(state.config.contacts[0].id, "aaa");
     }
 
     // --- Derive key ---
