@@ -193,6 +193,10 @@ def test_websocket_cleanup_on_disconnect(client):
 
     with client.websocket_connect(f"/ws/{uid}") as ws:
         do_ws_auth(ws, private, public_bytes)
+        # Server processes auth in a background thread; poll until registered
+        deadline = time.monotonic() + 2.0
+        while uid not in state.connections and time.monotonic() < deadline:
+            time.sleep(0.01)
         assert uid in state.connections
 
     # After disconnect, connection should be cleaned up
