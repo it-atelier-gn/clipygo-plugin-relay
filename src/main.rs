@@ -818,7 +818,11 @@ async fn ws_receiver_loop(state: Arc<Mutex<AppState>>, stdout: Arc<Mutex<io::Std
                         "public_key": B64.encode(our_public_key.as_bytes()),
                         "hmac": hmac_hex,
                     });
-                    if write.send(WsMsg::Text(auth_msg.to_string())).await.is_err() {
+                    if write
+                        .send(WsMsg::Text(auth_msg.to_string().into()))
+                        .await
+                        .is_err()
+                    {
                         break 'auth false;
                     }
 
