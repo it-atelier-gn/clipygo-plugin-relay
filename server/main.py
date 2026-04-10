@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import hmac as hmac_mod
 import os
+import struct
 import time
 from base64 import b64decode, b64encode
 from collections import defaultdict
@@ -24,11 +25,11 @@ from pydantic import BaseModel
 
 # --- Configuration ---
 
-MESSAGE_TTL = 86400  # 24 hours
-MAX_QUEUE_SIZE = 100  # per recipient
+MESSAGE_TTL = 3600  # 1 hour
+MAX_QUEUE_SIZE = 5  # per recipient
 MAX_MESSAGE_SIZE = 1_048_576  # 1 MB
 RATE_LIMIT_WINDOW = 60  # seconds
-RATE_LIMIT_MAX = 60  # messages per window per sender
+RATE_LIMIT_MAX = 10  # messages per window per sender
 EVICTION_INTERVAL = 300  # run TTL eviction every 5 minutes
 AUTH_TIMEOUT = 10  # seconds to complete challenge-response
 
@@ -64,11 +65,25 @@ state = RelayState()
 
 # --- Auth helpers ---
 
+TOKEN_PERIOD = 300  # 5 minutes, must match plugin
+
 
 def user_id_from_public_key(public_key_bytes: bytes) -> str:
     """Derive user ID from public key, matching the Rust plugin's logic."""
     h = hashlib.sha256(public_key_bytes).digest()
     return h[:8].hex()
+
+
+def derive_routing_token(public_key_bytes: bytes, unix_time: float) -> str:
+    """Derive a rotating routing token from a public key and time.
+
+    Must produce identical output to the Rust plugin's derive_routing_token().
+    """
+    period_index = int(unix_time) // TOKEN_PERIOD
+    mac = hmac_mod.new(
+        public_key_bytes, struct.pack(">Q", period_index), hashlib.sha256
+    ).digest()
+    return mac[:8].hex()
 
 
 def verify_auth(
@@ -84,8 +99,14 @@ def verify_auth(
         if len(client_pk_bytes) != 32:
             return False
 
-        # Verify user_id matches the public key
-        if user_id_from_public_key(client_pk_bytes) != user_id:
+        # Verify user_id (routing token) matches the public key for current ±1 period
+        now = time.time()
+        valid_tokens = {
+            derive_routing_token(client_pk_bytes, now - TOKEN_PERIOD),
+            derive_routing_token(client_pk_bytes, now),
+            derive_routing_token(client_pk_bytes, now + TOKEN_PERIOD),
+        }
+        if user_id not in valid_tokens:
             return False
 
         # ECDH to get shared secret

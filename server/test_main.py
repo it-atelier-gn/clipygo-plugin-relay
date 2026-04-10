@@ -15,6 +15,7 @@ from main import (
     QueuedMessage,
     RateBucket,
     check_rate_limit,
+    derive_routing_token,
     evict_expired,
     user_id_from_public_key,
     verify_auth,
@@ -41,11 +42,11 @@ def client():
 
 
 def make_keypair():
-    """Generate a client X25519 keypair and user_id."""
+    """Generate a client X25519 keypair and routing token."""
     private = X25519PrivateKey.generate()
     public_bytes = private.public_key().public_bytes_raw()
-    uid = user_id_from_public_key(public_bytes)
-    return private, public_bytes, uid
+    token = derive_routing_token(public_bytes, time.time())
+    return private, public_bytes, token
 
 
 def do_ws_auth(ws, client_private, client_public_bytes):
@@ -193,11 +194,13 @@ def test_websocket_cleanup_on_disconnect(client):
 
     with client.websocket_connect(f"/ws/{uid}") as ws:
         do_ws_auth(ws, private, public_bytes)
-        # Server processes auth in a background thread; poll until registered
-        deadline = time.monotonic() + 2.0
-        while uid not in state.connections and time.monotonic() < deadline:
-            time.sleep(0.01)
-        assert uid in state.connections
+
+        # Send a message to confirm the connection is registered (forces sync)
+        r = client.post(
+            "/send", json={"to": uid, "from_id": "probe", "payload": "ping"}
+        )
+        assert r.json()["status"] == "delivered"
+        ws.receive_json()  # consume the delivered message
 
     # After disconnect, connection should be cleaned up
     assert uid not in state.connections
@@ -286,9 +289,57 @@ def test_user_id_from_public_key_matches_rust():
     assert len(uid) == 16
 
 
+def test_routing_token_deterministic():
+    """Same public key + same time = same token."""
+    pk = bytes(range(32))
+    t = 1700000000
+    assert derive_routing_token(pk, t) == derive_routing_token(pk, t)
+
+
+def test_routing_token_changes_each_period():
+    """Different periods produce different tokens."""
+    pk = bytes(range(32))
+    t1 = 1700000000
+    t2 = t1 + 300  # next period
+    assert derive_routing_token(pk, t1) != derive_routing_token(pk, t2)
+
+
+def test_routing_token_stable_within_period():
+    """Timestamps in the same period produce the same token."""
+    pk = bytes(range(32))
+    t = 1700000200  # well within a period boundary
+    assert derive_routing_token(pk, t) == derive_routing_token(pk, t + 50)
+
+
+def test_routing_token_different_keys():
+    """Different public keys produce different tokens."""
+    t = 1700000000
+    assert derive_routing_token(bytes(32), t) != derive_routing_token(bytes([1] * 32), t)
+
+
+def test_routing_token_length():
+    """Token should be 16 hex chars."""
+    pk = bytes(32)
+    assert len(derive_routing_token(pk, 1700000000)) == 16
+
+
+def test_routing_token_cross_language_vector():
+    """Test vector that must match the Rust plugin's derive_routing_token().
+
+    Public key: 32 bytes [0, 1, 2, ..., 31]
+    Timestamp: 1700000000 (period_index = 5666666)
+    Expected: HMAC-SHA256(key=pk, msg=5666666 as u64 BE)[0..8].hex()
+    """
+    import struct
+    pk = bytes(range(32))
+    period_index = 1700000000 // 300
+    expected = hmac_mod.new(pk, struct.pack(">Q", period_index), hashlib.sha256).digest()[:8].hex()
+    assert derive_routing_token(pk, 1700000000) == expected
+
+
 def test_verify_auth_valid():
     server_private = X25519PrivateKey.generate()
-    client_private, client_public_bytes, uid = make_keypair()
+    client_private, client_public_bytes, token = make_keypair()
     nonce = b"test_nonce_12345"
 
     from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
@@ -297,15 +348,15 @@ def test_verify_auth_valid():
     shared = client_private.exchange(server_pk)
     mac = hmac_mod.new(shared, nonce, hashlib.sha256).hexdigest()
 
-    assert verify_auth(uid, b64encode(client_public_bytes).decode(), mac, server_private, nonce)
+    assert verify_auth(token, b64encode(client_public_bytes).decode(), mac, server_private, nonce)
 
 
 def test_verify_auth_wrong_hmac():
     server_private = X25519PrivateKey.generate()
-    _, client_public_bytes, uid = make_keypair()
+    _, client_public_bytes, token = make_keypair()
     nonce = b"test_nonce_12345"
 
-    assert not verify_auth(uid, b64encode(client_public_bytes).decode(), "badhex", server_private, nonce)
+    assert not verify_auth(token, b64encode(client_public_bytes).decode(), "badhex", server_private, nonce)
 
 
 # --- Rate limiting ---
