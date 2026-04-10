@@ -1,6 +1,6 @@
 [package]
 name = "clipygo-plugin-relay"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 description = "Encrypted clipboard relay plugin for clipygo"
 authors = ["Georg Nelles"]
@@ -23,6 +23,7 @@ hmac = "0.12"
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 reqwest = { version = "0.12", default-features = false, features = ["native-tls", "json"] }
+native-tls = "0.2"
 dirs = "6"
 hex = "0.4"
 futures-util = "0.3"

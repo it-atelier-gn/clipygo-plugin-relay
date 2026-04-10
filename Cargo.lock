@@ -116,7 +116,7 @@ dependencies = [
 
 [[package]]
 name = "clipygo-plugin-relay"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "base64",
  "chacha20poly1305",
@@ -124,6 +124,7 @@ dependencies = [
  "futures-util",
  "hex",
  "hmac",
+ "native-tls",
  "rand",
  "reqwest",
  "serde",
