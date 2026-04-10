@@ -7,10 +7,10 @@ use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use chacha20poly1305::aead::{Aead, KeyInit, OsRng};
 use chacha20poly1305::XChaCha20Poly1305;
+use hmac::{Hmac, Mac};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use hmac::{Hmac, Mac};
 use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
 
 // --- Protocol types ---
@@ -609,26 +609,22 @@ async fn ws_receiver_loop(state: Arc<Mutex<AppState>>, stdout: Arc<Mutex<io::Std
                         Some(Ok(WsMsg::Text(t))) => t,
                         _ => break 'auth false,
                     };
-                    let challenge: serde_json::Value =
-                        match serde_json::from_str(&challenge_text) {
-                            Ok(v) => v,
-                            Err(_) => break 'auth false,
-                        };
+                    let challenge: serde_json::Value = match serde_json::from_str(&challenge_text) {
+                        Ok(v) => v,
+                        Err(_) => break 'auth false,
+                    };
                     if challenge.get("type").and_then(|v| v.as_str()) != Some("challenge") {
                         break 'auth false;
                     }
-                    let server_pk_b64 = match challenge
-                        .get("server_public_key")
-                        .and_then(|v| v.as_str())
-                    {
-                        Some(s) => s,
-                        None => break 'auth false,
-                    };
-                    let nonce_hex =
-                        match challenge.get("nonce").and_then(|v| v.as_str()) {
+                    let server_pk_b64 =
+                        match challenge.get("server_public_key").and_then(|v| v.as_str()) {
                             Some(s) => s,
                             None => break 'auth false,
                         };
+                    let nonce_hex = match challenge.get("nonce").and_then(|v| v.as_str()) {
+                        Some(s) => s,
+                        None => break 'auth false,
+                    };
 
                     let server_pk_bytes = match B64.decode(server_pk_b64) {
                         Ok(b) if b.len() == 32 => b,
@@ -654,9 +650,10 @@ async fn ws_receiver_loop(state: Arc<Mutex<AppState>>, stdout: Arc<Mutex<io::Std
 
                     // 3. HMAC-SHA256(shared_secret, nonce)
                     type HmacSha256 = Hmac<Sha256>;
-                    let mut mac =
-                        <HmacSha256 as Mac>::new_from_slice(shared_secret.as_bytes())
-                            .expect("HMAC accepts any key length");
+                    let mut mac = <HmacSha256 as hmac::digest::KeyInit>::new_from_slice(
+                        shared_secret.as_bytes(),
+                    )
+                    .expect("HMAC accepts any key length");
                     mac.update(&nonce);
                     let hmac_hex = hex::encode(mac.finalize().into_bytes());
 
@@ -667,11 +664,7 @@ async fn ws_receiver_loop(state: Arc<Mutex<AppState>>, stdout: Arc<Mutex<io::Std
                         "public_key": B64.encode(our_public_key.as_bytes()),
                         "hmac": hmac_hex,
                     });
-                    if write
-                        .send(WsMsg::Text(auth_msg.to_string()))
-                        .await
-                        .is_err()
-                    {
+                    if write.send(WsMsg::Text(auth_msg.to_string())).await.is_err() {
                         break 'auth false;
                     }
 
@@ -693,16 +686,13 @@ async fn ws_receiver_loop(state: Arc<Mutex<AppState>>, stdout: Arc<Mutex<io::Std
                     while let Some(msg) = read.next().await {
                         match msg {
                             Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
-                                if let Ok(relay_msg) =
-                                    serde_json::from_str::<RelayMessage>(&text)
-                                {
+                                if let Ok(relay_msg) = serde_json::from_str::<RelayMessage>(&text) {
                                     if private_key_bytes.len() == 32 {
                                         let mut key_arr = [0u8; 32];
                                         key_arr.copy_from_slice(&private_key_bytes);
                                         let secret = StaticSecret::from(key_arr);
 
-                                        match decrypt_envelope(&relay_msg.payload, &secret)
-                                        {
+                                        match decrypt_envelope(&relay_msg.payload, &secret) {
                                             Ok((envelope, content)) => {
                                                 let ts = relay_msg.timestamp as u64;
                                                 emit_event(
@@ -1166,8 +1156,7 @@ mod tests {
         let content = "Sensitive clipboard data 🔐";
         let sender_id = "sender_abc";
         let payload =
-            encrypt_for_recipient(content, &recipient_public, sender_id, "Sender", "text")
-                .unwrap();
+            encrypt_for_recipient(content, &recipient_public, sender_id, "Sender", "text").unwrap();
 
         // Simulate the JSON the relay server would deliver over WebSocket
         let relay_json = serde_json::json!({
@@ -1181,7 +1170,8 @@ mod tests {
         let relay_msg: RelayMessage = serde_json::from_str(&relay_text).unwrap();
         assert_eq!(relay_msg.from, sender_id);
 
-        let (envelope, decrypted) = decrypt_envelope(&relay_msg.payload, &recipient_secret).unwrap();
+        let (envelope, decrypted) =
+            decrypt_envelope(&relay_msg.payload, &recipient_secret).unwrap();
         assert_eq!(decrypted, content);
         assert_eq!(envelope.sender_id, sender_id);
         assert_eq!(envelope.sender_name, "Sender");
@@ -1195,8 +1185,7 @@ mod tests {
         let recipient_secret = StaticSecret::from(rk);
         let recipient_public = PublicKey::from(&recipient_secret);
 
-        let payload =
-            encrypt_for_recipient("secret", &recipient_public, "s", "S", "text").unwrap();
+        let payload = encrypt_for_recipient("secret", &recipient_public, "s", "S", "text").unwrap();
 
         // Decode, flip a byte in the middle, re-encode
         let mut raw = B64.decode(&payload).unwrap();
