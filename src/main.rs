@@ -23,8 +23,8 @@ const PADDING_BLOCK: usize = 256; // pad plaintext to this boundary
 fn derive_routing_token(public_key_bytes: &[u8], unix_secs: u64) -> String {
     let period_index = unix_secs / TOKEN_PERIOD;
     type HmacSha256 = Hmac<Sha256>;
-    let mut mac =
-        <HmacSha256 as Mac>::new_from_slice(public_key_bytes).expect("HMAC accepts any key length");
+    let mut mac = <HmacSha256 as hmac::digest::KeyInit>::new_from_slice(public_key_bytes)
+        .expect("HMAC accepts any key length");
     mac.update(&period_index.to_be_bytes());
     let result = mac.finalize().into_bytes();
     hex::encode(&result[..8]) // 16 hex chars
@@ -806,8 +806,10 @@ async fn ws_receiver_loop(state: Arc<Mutex<AppState>>, stdout: Arc<Mutex<io::Std
 
                     // 3. HMAC-SHA256(shared_secret, nonce)
                     type HmacSha256 = Hmac<Sha256>;
-                    let mut mac = <HmacSha256 as Mac>::new_from_slice(shared_secret.as_bytes())
-                        .expect("HMAC accepts any key length");
+                    let mut mac = <HmacSha256 as hmac::digest::KeyInit>::new_from_slice(
+                        shared_secret.as_bytes(),
+                    )
+                    .expect("HMAC accepts any key length");
                     mac.update(&nonce);
                     let hmac_hex = hex::encode(mac.finalize().into_bytes());
 
@@ -1541,7 +1543,7 @@ mod tests {
         let period_index = t / TOKEN_PERIOD;
 
         type HmacSha256 = Hmac<Sha256>;
-        let mut mac = <HmacSha256 as Mac>::new_from_slice(&pk).unwrap();
+        let mut mac = <HmacSha256 as hmac::digest::KeyInit>::new_from_slice(&pk).unwrap();
         mac.update(&period_index.to_be_bytes());
         let expected = hex::encode(&mac.finalize().into_bytes()[..8]);
 
