@@ -1219,8 +1219,8 @@ mod tests {
         assert_eq!(v["values"]["relay_url"], "http://my-relay.com");
         assert_eq!(v["values"]["display_name"], "TestUser");
         assert_eq!(v["values"]["user_id"], "test");
-        assert!(v["values"]["public_key"].as_str().unwrap().len() > 0);
-        assert!(v["values"]["private_key"].as_str().unwrap().len() > 0);
+        assert!(!v["values"]["public_key"].as_str().unwrap().is_empty());
+        assert!(!v["values"]["private_key"].as_str().unwrap().is_empty());
         assert_eq!(v["values"]["contacts"], serde_json::json!([]));
         assert_eq!(v["schema"]["properties"]["contacts"]["type"], "array");
     }
