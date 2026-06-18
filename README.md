@@ -66,6 +66,18 @@ docker run -p 8000:8000 clipygo-relay
 
 The server is zero-knowledge — it routes encrypted blobs without being able to read them. WebSocket connections are authenticated via X25519 challenge-response. Messages for offline recipients are queued in memory (1h TTL, max 5 per recipient).
 
+### Dependencies
+
+`server/requirements.txt` and `server/requirements-dev.txt` are fully pinned, hash-locked files generated from `server/requirements.in` and `server/requirements-dev.in`. Installs enforce hashes, so do **not** hand-edit the `.txt` files. To change a dependency, edit the matching `.in` (which holds the curated version ranges) and recompile:
+
+```sh
+cd server
+uv pip compile --universal --generate-hashes --python-version 3.12 requirements.in -o requirements.txt
+uv pip compile --universal --generate-hashes --python-version 3.12 -c requirements.txt requirements-dev.in -o requirements-dev.txt
+```
+
+Dependabot proposes version bumps for this directory; CI installs with `--require-hashes`, so any bump with stale or missing hashes fails CI and cannot be merged.
+
 ## Security
 
 - X25519 ECDH with ephemeral keys + XChaCha20-Poly1305 per message
