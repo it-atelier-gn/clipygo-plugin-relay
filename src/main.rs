@@ -5,10 +5,10 @@ use std::sync::{Arc, Mutex};
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
-use chacha20poly1305::aead::rand_core::RngCore;
-use chacha20poly1305::aead::{Aead, KeyInit, OsRng};
+use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::XChaCha20Poly1305;
 use hmac::{Hmac, Mac};
+use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
@@ -299,7 +299,7 @@ fn encrypt_for_recipient(
 
     let mut nonce_bytes = [0u8; 24];
     OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = chacha20poly1305::XNonce::from_slice(&nonce_bytes);
+    let nonce = chacha20poly1305::XNonce::from(nonce_bytes);
 
     // Length-prefix + pad to PADDING_BLOCK boundary to obscure content size
     let content_bytes = content.as_bytes();
@@ -314,7 +314,7 @@ fn encrypt_for_recipient(
     padded.extend_from_slice(&pad);
 
     let ciphertext = cipher
-        .encrypt(nonce, padded.as_slice())
+        .encrypt(&nonce, padded.as_slice())
         .map_err(|e| format!("Encryption failed: {e}"))?;
 
     let envelope = EncryptedEnvelope {
@@ -362,14 +362,15 @@ fn decrypt_envelope(
     if nonce_bytes.len() != 24 {
         return Err("Invalid nonce length".to_string());
     }
-    let nonce = chacha20poly1305::XNonce::from_slice(&nonce_bytes);
+    let nonce =
+        chacha20poly1305::XNonce::try_from(nonce_bytes.as_slice()).expect("checked length above");
 
     let ciphertext = B64
         .decode(&envelope.ciphertext)
         .map_err(|e| format!("Ciphertext decode: {e}"))?;
 
     let plaintext = cipher
-        .decrypt(nonce, ciphertext.as_ref())
+        .decrypt(&nonce, ciphertext.as_ref())
         .map_err(|_| "Decryption failed — message not from a known contact".to_string())?;
 
     // Strip length-prefix padding: first 4 bytes = content length, then content, rest is padding
