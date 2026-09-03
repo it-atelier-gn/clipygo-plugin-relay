@@ -8,7 +8,9 @@ use base64::Engine;
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::XChaCha20Poly1305;
 use hmac::{Hmac, Mac};
-use rand_core::{OsRng, RngCore};
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
@@ -235,7 +237,7 @@ fn load_or_create_keypair(data_dir: &std::path::Path) -> (StaticSecret, PublicKe
 
     // Generate new keypair
     let mut key_bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut key_bytes);
+    UnwrapErr(SysRng).fill_bytes(&mut key_bytes);
     let secret = StaticSecret::from(key_bytes);
     let public = PublicKey::from(&secret);
     let uid = user_id_from_public_key(&public);
@@ -288,7 +290,7 @@ fn encrypt_for_recipient(
     sender_name: &str,
     format: &str,
 ) -> Result<String, String> {
-    let ephemeral_secret = EphemeralSecret::random_from_rng(OsRng);
+    let ephemeral_secret = EphemeralSecret::random_from_rng(&mut UnwrapErr(SysRng));
     let ephemeral_public = PublicKey::from(&ephemeral_secret);
 
     let shared_secret = ephemeral_secret.diffie_hellman(recipient_public_key);
@@ -298,7 +300,7 @@ fn encrypt_for_recipient(
         XChaCha20Poly1305::new_from_slice(&key).map_err(|e| format!("Cipher init: {e}"))?;
 
     let mut nonce_bytes = [0u8; 24];
-    OsRng.fill_bytes(&mut nonce_bytes);
+    UnwrapErr(SysRng).fill_bytes(&mut nonce_bytes);
     let nonce = chacha20poly1305::XNonce::from(nonce_bytes);
 
     // Length-prefix + pad to PADDING_BLOCK boundary to obscure content size
@@ -310,7 +312,7 @@ fn encrypt_for_recipient(
     padded.extend_from_slice(&len_prefix);
     padded.extend_from_slice(content_bytes);
     let mut pad = vec![0u8; pad_len];
-    OsRng.fill_bytes(&mut pad);
+    UnwrapErr(SysRng).fill_bytes(&mut pad);
     padded.extend_from_slice(&pad);
 
     let ciphertext = cipher
@@ -1094,7 +1096,7 @@ mod tests {
     #[test]
     fn encrypt_decrypt_roundtrip() {
         let mut recipient_key_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut recipient_key_bytes);
+        UnwrapErr(SysRng).fill_bytes(&mut recipient_key_bytes);
         let recipient_secret = StaticSecret::from(recipient_key_bytes);
         let recipient_public = PublicKey::from(&recipient_secret);
 
@@ -1117,7 +1119,7 @@ mod tests {
     #[test]
     fn decrypt_with_wrong_key_fails() {
         let mut key_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut key_bytes);
+        UnwrapErr(SysRng).fill_bytes(&mut key_bytes);
         let recipient_secret = StaticSecret::from(key_bytes);
         let recipient_public = PublicKey::from(&recipient_secret);
 
@@ -1125,7 +1127,7 @@ mod tests {
 
         // Try to decrypt with a different key
         let mut wrong_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut wrong_bytes);
+        UnwrapErr(SysRng).fill_bytes(&mut wrong_bytes);
         let wrong_secret = StaticSecret::from(wrong_bytes);
 
         assert!(decrypt_envelope(&payload, &wrong_secret).is_err());
@@ -1317,12 +1319,12 @@ mod tests {
     fn e2e_alice_sends_to_bob() {
         // Bob's keypair
         let mut bob_key = [0u8; 32];
-        OsRng.fill_bytes(&mut bob_key);
+        UnwrapErr(SysRng).fill_bytes(&mut bob_key);
         let bob_secret = StaticSecret::from(bob_key);
         let bob_public = PublicKey::from(&bob_secret);
         // Alice's identity
         let mut alice_key = [0u8; 32];
-        OsRng.fill_bytes(&mut alice_key);
+        UnwrapErr(SysRng).fill_bytes(&mut alice_key);
         let alice_secret = StaticSecret::from(alice_key);
         let alice_public = PublicKey::from(&alice_secret);
         let alice_id = user_id_from_public_key(&alice_public);
@@ -1347,7 +1349,7 @@ mod tests {
 
         // Random third party cannot decrypt
         let mut eve_key = [0u8; 32];
-        OsRng.fill_bytes(&mut eve_key);
+        UnwrapErr(SysRng).fill_bytes(&mut eve_key);
         let eve_secret = StaticSecret::from(eve_key);
         assert!(decrypt_envelope(&payload, &eve_secret).is_err());
     }
@@ -1357,13 +1359,13 @@ mod tests {
     #[test]
     fn e2e_bidirectional_exchange() {
         let mut ak = [0u8; 32];
-        OsRng.fill_bytes(&mut ak);
+        UnwrapErr(SysRng).fill_bytes(&mut ak);
         let alice_secret = StaticSecret::from(ak);
         let alice_public = PublicKey::from(&alice_secret);
         let alice_id = user_id_from_public_key(&alice_public);
 
         let mut bk = [0u8; 32];
-        OsRng.fill_bytes(&mut bk);
+        UnwrapErr(SysRng).fill_bytes(&mut bk);
         let bob_secret = StaticSecret::from(bk);
         let bob_public = PublicKey::from(&bob_secret);
         let bob_id = user_id_from_public_key(&bob_public);
@@ -1394,7 +1396,7 @@ mod tests {
     #[test]
     fn e2e_through_relay_message_format() {
         let mut rk = [0u8; 32];
-        OsRng.fill_bytes(&mut rk);
+        UnwrapErr(SysRng).fill_bytes(&mut rk);
         let recipient_secret = StaticSecret::from(rk);
         let recipient_public = PublicKey::from(&recipient_secret);
         let content = "Sensitive clipboard data 🔐";
@@ -1425,7 +1427,7 @@ mod tests {
     #[test]
     fn e2e_corrupted_payload_rejected() {
         let mut rk = [0u8; 32];
-        OsRng.fill_bytes(&mut rk);
+        UnwrapErr(SysRng).fill_bytes(&mut rk);
         let recipient_secret = StaticSecret::from(rk);
         let recipient_public = PublicKey::from(&recipient_secret);
 
