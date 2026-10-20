@@ -1,7 +1,6 @@
 /deploy
 .env
 /target
-PROJECT.md
 .venv/
 __pycache__/
 .pytest_cache/
