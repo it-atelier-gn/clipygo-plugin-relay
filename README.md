@@ -56,7 +56,13 @@ uv venv && uv pip install -r requirements.txt
 uv run uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Or with Docker:
+Or with Docker, using the image published with every release for `linux/amd64` and `linux/arm64`:
+
+```sh
+docker run -p 8000:8000 ghcr.io/it-atelier-gn/clipygo-relay:<version>
+```
+
+To build the image from source:
 
 ```sh
 cd server
